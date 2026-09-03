@@ -1,22 +1,18 @@
 import os
 import sys
 from dataclasses import dataclass
-
 from catboost import CatBoostClassifier
-
 from sklearn.ensemble import (
     AdaBoostClassifier,
     GradientBoostingClassifier,
     RandomForestClassifier
 )
-
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
     f1_score,
     precision_score,
-    recall_score,
-    roc_auc_score
+    recall_score
 )
 
 from sklearn.neighbors import KNeighborsClassifier
@@ -25,7 +21,7 @@ from xgboost import XGBClassifier
 
 from src.exception import CustomException
 from src.logger import logging
-from src.util import save_object
+from src.util import save_object, evaluate_models
 
 
 @dataclass
@@ -35,16 +31,12 @@ class ModelTrainerConfig:
         "model.pkl"
     )
 
-
 class ModelTrainer:
-
     def __init__(self):
         self.model_trainer_config = ModelTrainerConfig()
 
     def initiate_model_trainer(self, train_array, test_array):
-
         try:
-
             logging.info("Split training and test input data")
 
             X_train = train_array[:, :-1]
@@ -88,113 +80,94 @@ class ModelTrainer:
                 )
             }
 
-            model_report = {}
+            params = {
 
-            for model_name, model in models.items():
+               "Logistic Regression": {
+                    "C": [1],
+                    "solver": ["liblinear"]
+               },
 
-                logging.info(
-                    f"Training {model_name}"
-                )
+               "Decision Tree": {
+                    "criterion": ["gini"],
+                    "max_depth": [5, 10]
+               },
 
-                model.fit(X_train, y_train)
+               "Random Forest": {
+                    "n_estimators": [100],
+                    "max_depth": [10]
+               },
 
-                y_pred = model.predict(X_test)
+               "Gradient Boosting": {
+                    "learning_rate": [0.1],
+                    "n_estimators": [100],
+                    "max_depth": [3]
+               },
 
-                accuracy = accuracy_score(
-                    y_test,
-                    y_pred
-                )
+               "K-Neighbors": {
+                    "n_neighbors": [5],
+                    "weights": ["uniform"]
+               },
 
-                f1 = f1_score(
-                    y_test,
-                    y_pred,
-                    average="weighted"
-                )
+               "XGBoost": {
+                    "learning_rate": [0.1],
+                    "n_estimators": [100],
+                    "max_depth": [3]
+               },
 
-                precision = precision_score(
-                    y_test,
-                    y_pred,
-                    average="weighted"
-                )
+               "CatBoost": {
+                    "depth": [6],
+                    "learning_rate": [0.1],
+                    "iterations": [100]
+               },
 
-                recall = recall_score(
-                    y_test,
-                    y_pred,
-                    average="weighted"
-                )
+               "AdaBoost": {
+                    "learning_rate": [0.1],
+                    "n_estimators": [100]
+               }
+          }
 
-                model_report[model_name] = f1
-
-                print(
-                    f"{model_name}: "
-                    f"Accuracy={accuracy:.4f}, "
-                    f"Precision={precision:.4f}, "
-                    f"Recall={recall:.4f}, "
-                    f"F1={f1:.4f}"
-                )
-
-            # Find best model using F1 score
+            model_report, best_models = evaluate_models(
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                models=models,
+                param=params
+            )
 
             best_model_score = max(
                 model_report.values()
             )
 
-            best_model_name = list(
-                model_report.keys()
-            )[
+            best_model_name = list(model_report.keys())[
                 list(model_report.values()).index(
                     best_model_score
                 )
             ]
 
-            best_model = models[best_model_name]
-
+            best_model = best_models[best_model_name]
             if best_model_score < 0.60:
                 raise CustomException(
                     "No best model found"
                 )
 
-            logging.info(
-                f"Best model: {best_model_name}"
-            )
+            logging.info(f"Best model: {best_model_name}")
 
-            logging.info(
-                f"Best model F1 score: {best_model_score}"
-            )
-
-            # Save best model
+            logging.info(f"Best model F1 score: {best_model_score}")
 
             save_object(
                 file_path=self.model_trainer_config.trained_model_file_path,
                 obj=best_model
             )
 
-            # Final predictions
-
             predicted = best_model.predict(X_test)
+            accuracy = accuracy_score(y_test,predicted)
 
-            accuracy = accuracy_score(
-                y_test,
-                predicted
-            )
+            f1 = f1_score(y_test,predicted,average="weighted")
 
-            f1 = f1_score(
-                y_test,
-                predicted,
-                average="weighted"
-            )
+            precision = precision_score(y_test,predicted,average="weighted")
 
-            precision = precision_score(
-                y_test,
-                predicted,
-                average="weighted"
-            )
-
-            recall = recall_score(
-                y_test,
-                predicted,
-                average="weighted"
-            )
+            recall = recall_score(y_test,predicted,average="weighted")
 
             return {
                 "best_model": best_model_name,
@@ -203,6 +176,7 @@ class ModelTrainer:
                 "recall": recall,
                 "f1_score": f1
             }
+
 
         except Exception as e:
 
